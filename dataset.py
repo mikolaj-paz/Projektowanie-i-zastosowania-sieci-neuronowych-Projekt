@@ -6,7 +6,7 @@ import os
 import random
 
 class DIV2KDataset(Dataset):
-    def __init__(self, hr_dir, lr_dir, path_size=480, scale=2):
+    def __init__(self, hr_dir, lr_dir, patch_size=480, scale=2):
         super().__init__()
 
         self.hr_dir = hr_dir
@@ -15,7 +15,7 @@ class DIV2KDataset(Dataset):
         self.hr_images = sorted(os.listdir(hr_dir))
         self.lr_images = sorted(os.listdir(lr_dir))
 
-        self.patch_size = path_size
+        self.patch_size = patch_size
         self.scale = scale
 
         assert len(self.hr_images) == len(self.lr_images)
@@ -36,8 +36,6 @@ class DIV2KDataset(Dataset):
 
         lr_patch, hr_patch = self.random_crop(hr_img, lr_img)
 
-        # hr_img = self.transform(hr_img)
-        # lr_img = self.transform(lr_img)
         hr_patch = self.transform(hr_patch)
         lr_patch = self.transform(lr_patch)
 
@@ -47,7 +45,7 @@ class DIV2KDataset(Dataset):
         h, w = hr_img.size[1], lr_img.size[0]
 
         top = random.randint(0, h - self.patch_size)
-        left = random.randint(0, h - self.patch_size)
+        left = random.randint(0, w - self.patch_size)
 
         hr_patch = TF.crop(hr_img, top, left, self.patch_size, self.patch_size)
         lr_patch = TF.crop(lr_img, top // self.scale, left // self.scale,
