@@ -1,3 +1,4 @@
+import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
@@ -24,6 +25,8 @@ class DIV2KDataset(Dataset):
             transforms.ToTensor(),
         ])
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     def __len__(self):
         return len(self.hr_images)
 
@@ -38,6 +41,9 @@ class DIV2KDataset(Dataset):
 
         hr_patch = self.transform(hr_patch)
         lr_patch = self.transform(lr_patch)
+
+        hr_patch = hr_patch.to(self.device)
+        lr_patch = lr_patch.to(self.device)
 
         return lr_patch, hr_patch
 
