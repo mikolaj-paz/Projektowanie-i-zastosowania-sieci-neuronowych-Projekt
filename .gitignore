@@ -172,6 +172,7 @@ cython_debug/
 
 # Dane z kaggle.com
 dataset/
+patches/
 
 # Dane o treningu
 runs/
