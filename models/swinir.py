@@ -1,3 +1,5 @@
+# https://arxiv.org/abs/2108.10257
+
 import torch.nn as nn
 from torchvision.models.swin_transformer import SwinTransformerBlock
 
