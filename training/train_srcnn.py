@@ -110,15 +110,15 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=.001)
 
     print('Training...')
-    # model = train_srcnn(
-    #     model, 
-    #     args.e, 
-    #     device, 
-    #     train_loader, 
-    #     valid_loader,
-    #     nn.MSELoss(),
-    #     optimizer,
-    #     torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=4, factor=.5, threshold=.03, min_lr=1e-5)
-    # )
+    model = train_srcnn(
+        model, 
+        args.e, 
+        device, 
+        train_loader, 
+        valid_loader,
+        nn.MSELoss(),
+        optimizer,
+        torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=4, factor=.5, threshold=.03, min_lr=1e-5)
+    )
 
     torch.save(model.state_dict(), args.d)
