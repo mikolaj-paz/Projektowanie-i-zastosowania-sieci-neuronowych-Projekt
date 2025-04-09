@@ -22,8 +22,6 @@ class DIV2KDataset(Dataset):
             transforms.ToTensor(),
         ])
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     def __len__(self):
         return len(self.hr_images)
 
@@ -37,4 +35,4 @@ class DIV2KDataset(Dataset):
         hr_img = self.transform(hr_img)
         lr_img = self.transform(lr_img)
 
-        return lr_img.to(self.device), hr_img.to(self.device)
+        return lr_img, hr_img
