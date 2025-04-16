@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader 
 from tqdm import tqdm
+import math
 
 import sys, os
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -16,7 +17,7 @@ def train_srcnn(
     valid_loader: DataLoader,
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler.LRScheduler
+    scheduler: torch.optim.lr_scheduler._LRScheduler
 ):
     model = model.to(device)
     for epoch in range(1, epochs + 1):
@@ -44,6 +45,7 @@ def train_srcnn(
 
         model.eval()
         valid_loss = .0
+        psnr = .0
 
         with torch.no_grad():
             for inputs, targets in tqdm(valid_loader, desc='Validation', leave=False):
@@ -55,13 +57,17 @@ def train_srcnn(
                 loss = criterion(outputs, targets)
 
                 valid_loss += loss.item() * inputs.size(0)
+                psnr += 10 * math.log10(1.0 / loss) * inputs.size(0)
 
         valid_loss /= len(valid_loader.dataset)
-        scheduler.step(valid_loss)
+        psnr /= len(valid_loader.dataset)
 
-        print(f"Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f}")
+        print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr:.2f} dB')
 
-        return model
+        if scheduler is not None:
+            scheduler.step()
+
+    return model
 
 
 if __name__ == "__main__":
@@ -107,7 +113,13 @@ if __name__ == "__main__":
         persistent_workers=True
     )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=.001)
+    optimizer = torch.optim.Adam([
+        {'params': model.conv1.parameters(), 'lr': 1e-4},
+        {'params': model.conv2.parameters(), 'lr': 1e-4},
+        {'params': model.conv3.parameters(), 'lr': 1e-5},
+    ])
+
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=.5)
 
     print('Training...')
     model = train_srcnn(
@@ -118,7 +130,7 @@ if __name__ == "__main__":
         valid_loader,
         nn.MSELoss(),
         optimizer,
-        torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=4, factor=.5, threshold=.03, min_lr=1e-5)
+        scheduler
     )
 
-    torch.save(model.state_dict(), args.d)
+    torch.save(model.state_dict(), f'{args.d}_{args.e}')
