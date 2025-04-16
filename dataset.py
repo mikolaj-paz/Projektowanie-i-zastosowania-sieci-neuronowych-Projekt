@@ -36,3 +36,15 @@ class DIV2KDataset(Dataset):
         lr_img = self.transform(lr_img)
 
         return lr_img, hr_img
+    
+class PatchDataset(Dataset):
+    def __init__(self, pt_src):
+        data = torch.load(pt_src)
+        self.inputs = data['inputs']
+        self.targets = data['targets']
+
+    def __len__(self):
+        return len(self.inputs)
+    
+    def __getitem__(self, index):
+        return self.inputs[index], self.targets[index]
