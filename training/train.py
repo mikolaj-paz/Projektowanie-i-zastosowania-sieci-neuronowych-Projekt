@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from torch.utils.tensorboard import SummaryWriter
+from itertools import cycle
 
 class NNTrainingBase:
     def __init__(
@@ -43,23 +44,27 @@ class NNTrainingBase:
 
         return train_loss
 
+    def evaluate_one_batch(self, inputs: torch.Tensor, targets: torch.Tensor, valid_loss = .0, psnr_val = .0):
+        inputs = inputs.to(self.device, non_blocking=True)
+        targets = targets.to(self.device, non_blocking=True)
+
+        outputs: torch.Tensor = self.model(inputs)
+
+        loss = self.criterion(outputs, targets)
+        
+        valid_loss += loss.item() * inputs.size(0)
+        psnr_val += psnr(targets.cpu().numpy(), outputs.cpu().numpy(), data_range=1.0)
+
+        return valid_loss, psnr_val
+
     def evaluate(self):
         self.model.eval()
+
         valid_loss = .0
         psnr_val = .0
-
         with torch.no_grad():
             for inputs, targets in tqdm(self.valid_loader, desc='Validation', leave=False):
-                inputs: torch.Tensor = inputs.to(self.device, non_blocking=True)
-                targets: torch.Tensor = targets.to(self.device, non_blocking=True)
-
-                outputs: torch.Tensor = self.model(inputs)
-
-                loss = self.criterion(outputs, targets)
-                
-                valid_loss += loss.item() * inputs.size(0)
-                psnr_val += psnr(targets.cpu().numpy(), outputs.cpu().numpy(), data_range=1.0)
-
+                valid_loss, psnr_val = self.evaluate_one_batch(inputs, targets, valid_loss, psnr_val)
         valid_loss /= len(self.valid_loader)
         psnr_val /= len(self.valid_loader)
 
@@ -70,6 +75,7 @@ class NNTrainingBase:
         print(f'Epoch {current_num}/{target_num}')
 
         self.model.train()
+
         train_loss = .0
         for inputs, targets in tqdm(self.train_loader, desc='Training', leave=False):
             train_loss = self.train_one_batch(inputs, targets, train_loss)
@@ -91,15 +97,50 @@ class NNTrainingBase:
             train_loss, valid_loss, psnr_val = self.train_one_epoch(epoch, epochs)
 
             if self.writer is not None:
-                self.writer.add_scalars(
-                    'Training vs. Validation Loss',
-                    { 'Training': train_loss, 'Validation': valid_loss },
-                    epoch
-                )
-                self.writer.add_scalar(
-                    'PSNR',
-                    psnr_val
-                )
-                self.writer.flush()
+                self.write(epoch, train_loss, valid_loss, psnr_val)
 
         return self.model
+    
+    def train_for_iterations(self, iterations: int, val_interval: int):
+        self.model = self.model.to(self.device)
+        train_iterator = cycle(self.train_loader)
+
+        self.model.train()
+        train_loss = .0
+
+        for step in range(iterations // val_interval):
+            print('-' * 30)
+            print(f'Iterations {step * val_interval + 1}-{(step + 1) * val_interval}')
+
+            self.model.train()
+
+            train_loss = .0
+            for i in tqdm(range(val_interval), desc='Training', leave=False):
+                inputs, targets = next(train_iterator)
+                train_loss = self.train_one_batch(inputs, targets, train_loss)
+                if self.scheduler is not None:
+                    self.scheduler.step()
+            train_loss /= val_interval
+
+            valid_loss, psnr_val = self.evaluate()
+
+            print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr_val:.2f} dB')
+
+            if self.writer is not None:
+                self.write(step * val_interval + 1, train_loss, valid_loss, psnr_val)
+
+        return self.model
+                
+    def write(self, arg: int, train_loss: float, valid_loss: float, psnr_val: float):
+        assert(self.writer is not None)
+        self.writer.add_scalars(
+            'Training vs. Validation Loss',
+            { 'Training': train_loss, 'Validation': valid_loss },
+            arg
+        )
+        self.writer.add_scalar(
+            'PSNR',
+            psnr_val,
+            arg
+        )
+        self.writer.flush()
