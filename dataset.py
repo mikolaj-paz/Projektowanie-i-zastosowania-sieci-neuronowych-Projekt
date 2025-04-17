@@ -1,10 +1,9 @@
 import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
-import torchvision.transforms.functional as TF
 from PIL import Image
 import os
-import random
+from torch.utils.data import DataLoader 
 
 class DIV2KDataset(Dataset):
     def __init__(self, hr_dir, lr_dir):
@@ -48,3 +47,14 @@ class PatchDataset(Dataset):
     
     def __getitem__(self, index):
         return self.inputs[index], self.targets[index]
+    
+def create_dataloader(dataset: Dataset, batch_size: int, shuffle = True):
+    return DataLoader(
+        dataset,
+        batch_size,
+        shuffle,
+        num_workers=os.cpu_count() // 2, 
+        pin_memory=True,
+        prefetch_factor=2,
+        persistent_workers=True
+    )
