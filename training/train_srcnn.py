@@ -1,136 +1,69 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader 
-from tqdm import tqdm
-import math
+
+from train import NNTrainingBase
 
 import sys, os
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
 from models.srcnn import SRCNN
+from dataset import create_dataloader
 
-def train_srcnn(
-    model: nn.Module,
-    epochs: int,
-    device: torch.device,
-    train_loader: DataLoader,
-    valid_loader: DataLoader,
-    criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler._LRScheduler
-):
-    model = model.to(device)
-    for epoch in range(1, epochs + 1):
-        print("-" * 30)
-        print(f'Epoch {epoch}/{epochs}')
+class SRCNNTraining(NNTrainingBase):
+    def __init__(self, model: SRCNN, device: torch.device, train_loader: DataLoader, valid_loader: DataLoader, use_writer=False):
+        optimizer = torch.optim.Adam([
+            {'params': model.conv1.parameters(), 'lr': 1e-4},
+            {'params': model.conv2.parameters(), 'lr': 1e-4},
+            {'params': model.conv3.parameters(), 'lr': 1e-5},
+        ])
 
-        model.train()
-        train_loss = .0
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=.5)
 
-        for inputs, targets in tqdm(train_loader, desc='Training', leave=False):
-            inputs = inputs.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-
-            optimizer.zero_grad()
-
-            outputs = model(inputs)
-
-            loss = criterion(outputs, targets)
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item() * inputs.size(0)
-        
-        train_loss /= len(train_loader.dataset)
-
-        model.eval()
-        valid_loss = .0
-        psnr = .0
-
-        with torch.no_grad():
-            for inputs, targets in tqdm(valid_loader, desc='Validation', leave=False):
-                inputs = inputs.to(device, non_blocking=True)
-                targets = targets.to(device, non_blocking=True)
-
-                outputs = model(inputs)
-
-                loss = criterion(outputs, targets)
-
-                valid_loss += loss.item() * inputs.size(0)
-                psnr += 10 * math.log10(1.0 / loss) * inputs.size(0)
-
-        valid_loss /= len(valid_loader.dataset)
-        psnr /= len(valid_loader.dataset)
-
-        print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr:.2f} dB')
-
-        if scheduler is not None:
-            scheduler.step()
-
-    return model
+        super().__init__(
+            model, 
+            device, 
+            train_loader, 
+            valid_loader, 
+            nn.MSELoss(),
+            optimizer,
+            scheduler, 
+            use_writer
+        )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     import argparse
     from dataset import DIV2KDataset
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--d', '--dst', type=str, required=True)
-    parser.add_argument('--e', '--epochs', type=int, required=True)
-    parser.add_argument('--b', '--batches', type=int, required=False)
-    parser.add_argument('--s', '--scale', type=int, required=False)
+    parser.add_argument('--train_lr', type=str, required=True)
+    parser.add_argument('--train_hr', type=str, required=True)
+    parser.add_argument('--valid_lr', type=str, required=True)
+    parser.add_argument('--valid_hr', type=str, required=True)
+    parser.add_argument('--dst', type=str, required=True)
+    parser.add_argument('--epochs', type=int, required=True)
+    parser.add_argument('--batches', type=int, required=True)
+    parser.add_argument('--scale', type=int, required=False)
+    parser.add_argument('--tensorboard', action=argparse.BooleanOptionalAction, type=bool, required=True)
     args = parser.parse_args()
 
-    model = SRCNN(args.s) if args.s is not None else SRCNN()
+    model = SRCNN(args.scale) if args.scale is not None else SRCNN()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Device: {device}')
 
     print('Loading datasets...')
-    train_dataset = DIV2KDataset("patches/DIV2K_train_HR_480", "patches/DIV2K_train_LR_480")
-    valid_dataset = DIV2KDataset("patches/DIV2K_valid_HR_480", "patches/DIV2K_valid_LR_480")
+    train_dataset = DIV2KDataset(args.train_hr, args.train_lr)
+    valid_dataset = DIV2KDataset(args.valid_hr, args.valid_lr)
 
-    batch_size = args.b if args.b is not None else 8
+    batch_size = args.batches
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size,
-        shuffle=True, 
-        num_workers=os.cpu_count() // 2, 
-        pin_memory=True,
-        prefetch_factor=2,
-        persistent_workers=True
-    )
-
-    valid_loader = DataLoader(
-        valid_dataset,
-        batch_size,
-        shuffle=True, 
-        num_workers=os.cpu_count() // 2, 
-        pin_memory=True,
-        prefetch_factor=2,
-        persistent_workers=True
-    )
-
-    optimizer = torch.optim.Adam([
-        {'params': model.conv1.parameters(), 'lr': 1e-4},
-        {'params': model.conv2.parameters(), 'lr': 1e-4},
-        {'params': model.conv3.parameters(), 'lr': 1e-5},
-    ])
-
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=.5)
+    train_loader = create_dataloader(train_dataset, batch_size)
+    valid_loader = create_dataloader(valid_dataset, batch_size, shuffle=False)
 
     print('Training...')
-    model = train_srcnn(
-        model, 
-        args.e, 
-        device, 
-        train_loader, 
-        valid_loader,
-        nn.MSELoss(),
-        optimizer,
-        scheduler
-    )
+    trainer = SRCNNTraining(model, device, train_loader, valid_loader, use_writer=args.tensorboard)
+    model = trainer.train_for_epochs(args.epochs)
 
-    torch.save(model.state_dict(), f'{args.d}_{args.e}')
+    torch.save(model.state_dict(), f'{args.dst}_{args.epochs}')
