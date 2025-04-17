@@ -74,9 +74,9 @@ if __name__ == '__main__':
     parser.add_argument('--dst', type=str, required=True)
     parser.add_argument('--size', type=int, required=True)
     parser.add_argument('--stride', type=int, required=True)
-    parser.add_argument('--ph', type=bool, required=True)
+    parser.add_argument('--ph', action=argparse.BooleanOptionalAction, type=bool, required=True)
     parser.add_argument('--scale', type=int, required=False)
-    parser.add_argument('--resize', type=bool, required=False)
+    parser.add_argument('--resize', action=argparse.BooleanOptionalAction, type=bool, required=False)
     args = parser.parse_args()
 
     args.dst = args.dst + '_{}'.format(args.size * (args.scale if args.scale is not None else 1))
