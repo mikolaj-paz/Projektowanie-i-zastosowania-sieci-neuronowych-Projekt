@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader 
 from tqdm import tqdm
-from skimage.metrics import peak_signal_noise_ratio as psnr
+import math
+from skimage.metrics import structural_similarity as ssim
 from torch.utils.tensorboard import SummaryWriter
 from itertools import cycle
 
@@ -35,7 +36,7 @@ class NNTrainingBase:
 
         outputs: torch.Tensor = self.model(inputs)
 
-        loss = self.criterion(outputs, targets)
+        loss: torch.Tensor = self.criterion(outputs, targets)
         loss.backward()
 
         self.optimizer.step()
@@ -44,31 +45,42 @@ class NNTrainingBase:
 
         return train_loss
 
-    def evaluate_one_batch(self, inputs: torch.Tensor, targets: torch.Tensor, valid_loss = .0, psnr_val = .0):
+    def evaluate_one_batch(self, inputs: torch.Tensor, targets: torch.Tensor, valid_loss = .0, psnr_val = .0, ssim_val = .0):
         inputs = inputs.to(self.device, non_blocking=True)
         targets = targets.to(self.device, non_blocking=True)
 
         outputs: torch.Tensor = self.model(inputs)
 
-        loss = self.criterion(outputs, targets)
+        loss: torch.Tensor = self.criterion(outputs, targets)
         
         valid_loss += loss.item() * inputs.size(0)
-        psnr_val += psnr(targets.cpu().numpy(), outputs.cpu().numpy(), data_range=1.0)
 
-        return valid_loss, psnr_val
+        batch_ssim = .0
+        for i in range(inputs.size(0)):
+            output_img = outputs[i].squeeze(0).cpu().numpy()
+            target_img = targets[i].squeeze(0).cpu().numpy()
+            batch_ssim += ssim(target_img, output_img, data_range=1.0, channel_axis=0)
+        ssim_val += batch_ssim / inputs.size(0)
+            
+        psnr_val += 10. * math.log10(1.0 / loss.item())
+
+        return valid_loss, psnr_val, ssim_val
 
     def evaluate(self):
         self.model.eval()
 
         valid_loss = .0
         psnr_val = .0
+        ssim_val = .0
         with torch.no_grad():
             for inputs, targets in tqdm(self.valid_loader, desc='Validation', leave=False):
-                valid_loss, psnr_val = self.evaluate_one_batch(inputs, targets, valid_loss, psnr_val)
-        valid_loss /= len(self.valid_loader)
-        psnr_val /= len(self.valid_loader)
+                valid_loss, psnr_val, ssim_val = self.evaluate_one_batch(inputs, targets, valid_loss, psnr_val, ssim_val)
+        loader_len = len(self.valid_loader)
+        valid_loss /= loader_len
+        psnr_val /= loader_len
+        ssim_val /= loader_len
 
-        return valid_loss, psnr_val       
+        return valid_loss, psnr_val, ssim_val
 
     def train_one_epoch(self, current_num: int, target_num: int):
         print('-' * 30)
@@ -81,23 +93,23 @@ class NNTrainingBase:
             train_loss = self.train_one_batch(inputs, targets, train_loss)
         train_loss /= len(self.train_loader)
 
-        valid_loss, psnr_val = self.evaluate()
+        valid_loss, psnr_val, ssim_val = self.evaluate()
 
         if self.scheduler is not None:
             self.scheduler.step()
 
-        print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr_val:.2f} dB')
+        print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f}')
 
-        return train_loss, valid_loss, psnr_val
+        return train_loss, valid_loss, psnr_val, ssim_val
 
     def train_for_epochs(self, epochs: int):
         self.model = self.model.to(self.device)
 
         for epoch in range(1, epochs + 1):
-            train_loss, valid_loss, psnr_val = self.train_one_epoch(epoch, epochs)
+            train_loss, valid_loss, psnr_val, ssim_val = self.train_one_epoch(epoch, epochs)
 
             if self.writer is not None:
-                self.write(epoch, train_loss, valid_loss, psnr_val)
+                self.write(epoch, train_loss, valid_loss, psnr_val, ssim_val)
 
         return self.model
     
@@ -122,16 +134,16 @@ class NNTrainingBase:
                     self.scheduler.step()
             train_loss /= val_interval
 
-            valid_loss, psnr_val = self.evaluate()
+            valid_loss, psnr_val, ssim_val = self.evaluate()
 
-            print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr_val:.2f} dB')
+            print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f}')
 
             if self.writer is not None:
-                self.write(step * val_interval + 1, train_loss, valid_loss, psnr_val)
+                self.write(step * val_interval + 1, train_loss, valid_loss, psnr_val, ssim_val)
 
         return self.model
                 
-    def write(self, arg: int, train_loss: float, valid_loss: float, psnr_val: float):
+    def write(self, arg: int, train_loss: float, valid_loss: float, psnr_val: float, ssim_val: float):
         assert(self.writer is not None)
         self.writer.add_scalars(
             'Training vs. Validation Loss',
@@ -141,6 +153,11 @@ class NNTrainingBase:
         self.writer.add_scalar(
             'PSNR',
             psnr_val,
+            arg
+        )
+        self.writer.add_scalar(
+            'SSIM',
+            ssim_val,
             arg
         )
         self.writer.flush()
