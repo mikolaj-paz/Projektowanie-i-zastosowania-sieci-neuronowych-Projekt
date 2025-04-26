@@ -117,9 +117,6 @@ class NNTrainingBase:
         self.model = self.model.to(self.device)
         train_iterator = cycle(self.train_loader)
 
-        self.model.train()
-        train_loss = .0
-
         for step in range(iterations // val_interval):
             print('-' * 30)
             print(f'Iterations {step * val_interval + 1}-{(step + 1) * val_interval}')

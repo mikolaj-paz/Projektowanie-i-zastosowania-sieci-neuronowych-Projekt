@@ -8,7 +8,6 @@ import sys, os
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
 from models.srcnn import SRCNN
-from dataset import create_dataloader
 
 class SRCNNTraining(NNTrainingBase):
     def __init__(self, model: SRCNN, device: torch.device, train_loader: DataLoader, valid_loader: DataLoader, use_writer=False):
@@ -34,7 +33,7 @@ class SRCNNTraining(NNTrainingBase):
 
 if __name__ == '__main__':
     import argparse
-    from dataset import DIV2KDataset
+    from dataset import DIV2KDataset, create_dataloader
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_lr', type=str, required=True)
