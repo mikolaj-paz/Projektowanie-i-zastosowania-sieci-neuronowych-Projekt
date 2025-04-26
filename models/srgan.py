@@ -90,7 +90,7 @@ class SRGANdiscriminator(nn.Module):
         )
         self.final = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(512 * 30 * 30, 1024),
+            nn.Linear(512 * 6 * 6, 1024),
             nn.LeakyReLU(.2, inplace=True),
             nn.Linear(1024, 1),
             nn.Sigmoid()
