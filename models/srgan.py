@@ -1,7 +1,7 @@
 # https://arxiv.org/pdf/1609.04802
 
-import torch
 import torch.nn as nn
+from torchvision.models import vgg19, VGG19_Weights
 
 class SRGANresidual(nn.Module):
     def __init__(self, in_channels=64):
@@ -100,3 +100,14 @@ class SRGANdiscriminator(nn.Module):
         x = self.initial(x)
         x = self.conv(x)
         return self.final(x)
+    
+class FeatureExtractor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        vgg = vgg19(weights=VGG19_Weights.DEFAULT)
+        self.feature_extractor = nn.Sequential(*list(vgg.features)[:36]).eval()
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False
+    
+    def forward(self, x):
+        return self.feature_extractor(x)
