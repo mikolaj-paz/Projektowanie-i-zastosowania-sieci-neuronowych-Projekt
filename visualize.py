@@ -18,7 +18,7 @@ def model_from_file(model: nn.Module, path: str):
     except FileNotFoundError:
         print(f'Couldn\'t load the model from {path}')
 
-def image_output_from_model(model: nn.Module, device: torch.device, img: Image):
+def image_output_from_model(model: nn.Module, device: torch.device, img: Image) -> Image:
     model = model.to(device)
     tensor: torch.Tensor = transforms.ToTensor()(img).to(device).unsqueeze(0)
 
@@ -31,49 +31,68 @@ def image_output_from_model(model: nn.Module, device: torch.device, img: Image):
 
     return ToPILImage()(output.squeeze(0).cpu())
 
-def visualize_all_models(srcnn_src: str, srgan_src: str, swinir_src: str, device: torch.device, hr: Image, lr: Image):
-    srcnn = SRCNN().to(device)
-    model_from_file(srcnn, srcnn_src)
-
-    srgan = SRGANgenerator().to(device)
-    model_from_file(srgan, srgan_src)
-
-    swinir = SwinIR().to(device)
-    model_from_file(swinir, swinir_src)
-
-    out_srcnn = image_output_from_model(srcnn, device, lr)
-    out_srgan = image_output_from_model(srgan, device, lr)
-    out_swinir = image_output_from_model(swinir, device, lr)
-
-    plt.subplot(2, 2, 1)
-    plt.title('High Resolution Image')
-    plt.imshow(hr)
+def subplot_image(
+    grid: list[int],
+    position: int,
+    title: str,
+    image: Image,
+    share: plt.Axes = None
+) -> plt.Axes:
+    
+    ax = plt.subplot(grid[0], grid[1], position,
+        sharex = share,
+        sharey = share
+    )
+    plt.title(title)
+    plt.imshow(image)
     plt.axis('off')
 
-    plt.subplot(2, 2, 2)
-    plt.title('SRCNN Output Image')
-    plt.imshow(out_srcnn)
-    plt.axis('off')
+    return ax
 
-    plt.subplot(2, 2, 3)
-    plt.title('SRGAN Output Image')
-    plt.imshow(out_srgan)
-    plt.axis('off')
+def visualize_all_models(hr: Image, lr: Image, device = torch.device('cpu'), srcnn_src: str = None, srgan_src: str = None, swinir_src: str = None):
+    sources = [srcnn_src, srgan_src, swinir_src]
+    num_of_models = len(sources) - sources.count(None) + 1
 
-    plt.subplot(2, 2, 4)
-    plt.title('SwinIR Output Image')
-    plt.imshow(out_swinir)
-    plt.axis('off')
+    plot_grid = {
+        0: [1, 1],
+        1: [1, 2],
+        3: [1, 3],
+        4: [2, 2]
+    }[num_of_models]
 
+    position = 1
+
+    hr_axes = subplot_image(plot_grid, position, 'High Resolution Image', hr)
+
+    for src in [srcnn_src, srgan_src, swinir_src]:
+        if src is None:
+            continue
+
+        position += 1
+        
+        model: torch.Tensor = {
+            srcnn_src: SRCNN(),
+            srgan_src: SRGANgenerator(),
+            swinir_src: SwinIR()
+        }[src]
+
+        model = model.to(device)
+
+        model_from_file(model, src)
+        output = image_output_from_model(model, device, lr)
+
+        subplot_image(plot_grid, position, f'{model._get_name()} Output Image', output, hr_axes)
+    
+    print('Plotting images...')
     plt.show()
 
 if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--srcnn', type=str, required=True)
-    parser.add_argument('--srgan', type=str, required=True)
-    parser.add_argument('--swinir', type=str, required=True)
+    parser.add_argument('--srcnn', type=str, required=False)
+    parser.add_argument('--srgan', type=str, required=False)
+    parser.add_argument('--swinir', type=str, required=False)
     parser.add_argument('--lr', type=str, required=True)
     parser.add_argument('--hr', type=str, required=True)
     args = parser.parse_args()
@@ -91,4 +110,4 @@ if __name__ == '__main__':
     hr_img = Image.open(hr_path).convert("RGB")
     lr_img = Image.open(lr_path).convert("RGB")
 
-    visualize_all_models(args.srcnn, args.srgan, args.swinir, device, hr_img, lr_img)
+    visualize_all_models(hr_img, lr_img, device, args.srcnn, args.srgan, args.swinir)
