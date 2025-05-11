@@ -114,29 +114,46 @@ class NNTrainingBase:
         return self.model
     
     def train_for_iterations(self, iterations: int, val_interval: int):
+        bar = None
+
         self.model = self.model.to(self.device)
-        train_iterator = cycle(self.train_loader)
 
-        for step in range(iterations // val_interval):
-            print('-' * 30)
-            print(f'Iterations {step * val_interval + 1}-{(step + 1) * val_interval}')
+        steps = 0
 
-            self.model.train()
+        train_loss = .0
+        while steps < iterations:
+            for inputs, targets in self.train_loader:
+                if steps >= iterations:
+                    bar = None
+                    break
 
-            train_loss = .0
-            for i in tqdm(range(val_interval), desc='Training', leave=False):
-                inputs, targets = next(train_iterator)
+                if steps % val_interval == 0:
+                    print('-' * 30)
+                    print(f'Iterations {steps + 1}-{steps + val_interval}')
+                    bar = tqdm(total=val_interval, desc='Training', leave=False)
+
+                self.model.train()
+
                 train_loss = self.train_one_batch(inputs, targets, train_loss)
+
+                steps += 1
+                bar.update()
+
+                if steps % val_interval == 0:
+                    bar = None
+
+                    train_loss /= val_interval
+                    valid_loss, psnr_val, ssim_val = self.evaluate()
+                    
+                    print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f}')
+
+                    if self.writer is not None:
+                        self.write(steps, train_loss, valid_loss, psnr_val, ssim_val)
+
+                    train_loss = .0
+                
                 if self.scheduler is not None:
                     self.scheduler.step()
-            train_loss /= val_interval
-
-            valid_loss, psnr_val, ssim_val = self.evaluate()
-
-            print(f'Train Loss: {train_loss:.6f} | Valid Loss: {valid_loss:.6f} | PSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f}')
-
-            if self.writer is not None:
-                self.write(step * val_interval + 1, train_loss, valid_loss, psnr_val, ssim_val)
 
         return self.model
                 

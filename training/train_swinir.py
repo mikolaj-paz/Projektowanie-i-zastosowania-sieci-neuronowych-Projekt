@@ -48,6 +48,7 @@ if __name__ == '__main__':
     parser.add_argument('--iterations', type=int, required=True)
     parser.add_argument('--interval', type=int, required=True)
     parser.add_argument('--batches', type=int, required=True)
+    parser.add_argument('--val_batches', type=int, required=True)
     parser.add_argument('--scale', type=int, required=False)
     parser.add_argument('--tensorboard', action=argparse.BooleanOptionalAction, type=bool, required=True)
     args = parser.parse_args()
@@ -62,9 +63,10 @@ if __name__ == '__main__':
     valid_dataset = DIV2KDataset(args.valid_hr, args.valid_lr)
 
     batch_size = args.batches
+    val_batch_size = args.val_batches
 
     train_loader = create_dataloader(train_dataset, batch_size)
-    valid_loader = create_dataloader(valid_dataset, batch_size, shuffle=False)
+    valid_loader = create_dataloader(valid_dataset, val_batch_size, shuffle=False)
 
     original_milestones = [
         250_000,
