@@ -131,7 +131,7 @@ class SRGANTraining():
         discriminator_train_loss = .0
 
         while steps < iterations:
-            for inputs, targets, in self.train_loader:
+            for inputs, targets in self.train_loader:
                 if steps >= iterations:
                     bar = None
                     break
@@ -151,6 +151,8 @@ class SRGANTraining():
 
                 if steps % val_interval == 0:
                     bar = None
+
+                    train_loss /= val_interval
                     valid_loss, vgg_loss, psnr_val, ssim_val = self.evaluate()
                     self.scheduler_generator.step(vgg_loss)
 
@@ -164,6 +166,25 @@ class SRGANTraining():
                     discriminator_train_loss = .0
 
         return self.generator, self.discriminator
+    
+    def write(self, arg: int, train_loss: float, valid_loss: float, psnr_val: float, ssim_val: float):
+        assert(self.writer is not None)
+        self.writer.add_scalars(
+            'Training vs. Validation Loss',
+            { 'Training': train_loss, 'Validation': valid_loss },
+            arg
+        )
+        self.writer.add_scalar(
+            'PSNR',
+            psnr_val,
+            arg
+        )
+        self.writer.add_scalar(
+            'SSIM',
+            ssim_val,
+            arg
+        )
+        self.writer.flush()
 
 if __name__ == '__main__':
     import argparse
