@@ -11,9 +11,9 @@ from models.srcnn import SRCNN
 from models.srgan import SRGANgenerator, SRGANdiscriminator
 from models.swinir import SwinIR
 
-def model_from_file(model: nn.Module, path: str):
+def model_from_file(model: nn.Module, device: torch.device, path: str):
     try:
-        model.load_state_dict(torch.load(path, weights_only=True))
+        model.load_state_dict(torch.load(path, weights_only=True, map_location=device))
         print(f'Loaded model from {path}')
     except FileNotFoundError:
         print(f'Couldn\'t load the model from {path}')
@@ -78,7 +78,7 @@ def visualize_all_models(hr: Image, lr: Image, device = torch.device('cpu'), src
 
         model = model.to(device)
 
-        model_from_file(model, src)
+        model_from_file(model, device, src)
         output = image_output_from_model(model, device, lr)
 
         subplot_image(plot_grid, position, f'{model._get_name()} Output Image', output, hr_axes)
@@ -97,7 +97,7 @@ if __name__ == '__main__':
     parser.add_argument('--hr', type=str, required=True)
     args = parser.parse_args()
 
-    device = device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     hr_images = sorted(os.listdir(args.hr))
     lr_images = sorted(os.listdir(args.lr))
