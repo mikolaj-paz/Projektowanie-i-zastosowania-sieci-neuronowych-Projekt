@@ -57,12 +57,13 @@ class NNTrainingBase:
 
         batch_ssim = .0
         for i in range(inputs.size(0)):
-            output_img = outputs[i].squeeze(0).cpu().numpy()
-            target_img = targets[i].squeeze(0).cpu().numpy()
-            batch_ssim += ssim(target_img, output_img, data_range=1.0, channel_axis=0)
+            output_img = outputs[i].permute(1, 2, 0).cpu().numpy()
+            target_img = targets[i].permute(1, 2, 0).cpu().numpy()
+            batch_ssim += ssim(target_img, output_img, data_range=1.0)
         ssim_val += batch_ssim / inputs.size(0)
-            
-        psnr_val += 10. * math.log10(1.0 / loss.item())
+        
+        mse = torch.mean((outputs - targets) ** 2).item()
+        psnr_val += 10. * math.log10(1.0 / mse)
 
         return valid_loss, psnr_val, ssim_val
 
