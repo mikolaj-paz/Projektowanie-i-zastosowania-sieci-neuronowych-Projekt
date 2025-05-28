@@ -139,6 +139,9 @@ class NNTrainingBase:
                 steps += 1
                 bar.update()
 
+                if steps % 10_000 == 0:
+                    torch.save(self.model.state_dict(), f'tmp/checkpoint_{steps}')
+
                 if steps % val_interval == 0:
                     bar = None
 

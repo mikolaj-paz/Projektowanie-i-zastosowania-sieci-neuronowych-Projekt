@@ -176,6 +176,7 @@ patches/
 
 # Dane o treningu
 runs/
+tmp/
 
 # Pliki archiwalne PyTorch
 model_weights *.pth
