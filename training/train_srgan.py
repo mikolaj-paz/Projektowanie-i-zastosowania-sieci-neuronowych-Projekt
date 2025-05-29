@@ -90,7 +90,7 @@ class SRGANTraining():
         for i in range(inputs.size(0)):
             output_img = outputs[i].permute(1, 2, 0).cpu().numpy()
             target_img = targets[i].permute(1, 2, 0).cpu().numpy()
-            batch_ssim += ssim(target_img, output_img, data_range=1.0)
+            batch_ssim += ssim(target_img, output_img, data_range=1.0, channel_axis=-1)
         ssim_val += batch_ssim / inputs.size(0)
 
         mse = torch.mean((outputs - targets) ** 2).item()
