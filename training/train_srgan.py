@@ -13,8 +13,20 @@ base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(base_dir)
 from models.srgan import SRGANgenerator, SRGANdiscriminator, FeatureExtractor
 
+def set_requires_grad(module: nn.Module, flag: bool):
+    for param in module.parameters():
+        param.requires_grad = flag
+
 class SRGANTraining():
-    def __init__(self, generator: SRGANgenerator, discriminator: SRGANdiscriminator, device: torch.device, train_loader: DataLoader, valid_loader: DataLoader, use_writer=False):
+    def __init__(
+        self,
+        generator: SRGANgenerator,
+        discriminator: SRGANdiscriminator,
+        device: torch.device,
+        train_loader: DataLoader,
+        valid_loader: DataLoader,
+        use_writer = False
+    ):
         self.generator = generator
         self.discriminator = discriminator
         self.device = device
@@ -32,104 +44,110 @@ class SRGANTraining():
 
         self.feature_extractor = FeatureExtractor()
 
-    def calculate_perceptual_loss(self, outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def __perceptual_loss(self, outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             outputs_features = self.feature_extractor(outputs)
             targets_features = self.feature_extractor(targets)
         return self.content_criterion(outputs_features, targets_features)
     
-    def calculate_adversarial_loss(self, outputs: torch.Tensor) -> torch.Tensor:
+    def __adversarial_loss(self, outputs: torch.Tensor) -> torch.Tensor:
         return self.adversarial_criterion(outputs, torch.ones_like(outputs))
     
-    def calculate_discriminator_loss(self, outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        targets_loss = self.adversarial_criterion(targets, torch.ones_like(targets))
-        outputs_loss = self.adversarial_criterion(outputs, torch.zeros_like(outputs))
-        return (targets_loss + outputs_loss) / 2.
+    def __discriminator_loss(self, outputs_fake: torch.Tensor, outputs_real: torch.Tensor) -> torch.Tensor:
+        real_loss = self.adversarial_criterion(outputs_real, torch.ones_like(outputs_real))
+        fake_loss = self.adversarial_criterion(outputs_fake, torch.zeros_like(outputs_fake))
+        return 0.5 * (real_loss + fake_loss)
 
-    def train_one_batch(self, inputs: torch.Tensor, targets: torch.Tensor, generator_train_loss = .0, discriminator_train_loss = .0):
+    def train_one_batch(
+        self,
+        inputs: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> tuple[float, float]:
         inputs = inputs.to(self.device, non_blocking=True)
         targets = targets.to(self.device, non_blocking=True)
 
-        outputs: torch.Tensor = self.generator(inputs)
+        set_requires_grad(self.discriminator, False)
+        self.optimizer_generator.zero_grad(set_to_none=True)
 
-        self.optimizer_generator.zero_grad()
-        self.optimizer_discriminator.zero_grad()
+        fakes: torch.Tensor = self.generator(inputs)
 
-        adversarial_loss = self.calculate_adversarial_loss(self.discriminator(outputs))
-        perceptual_loss = self.calculate_perceptual_loss(outputs, targets)
-        content_loss: torch.Tensor = self.content_criterion(outputs, targets)
-        generator_loss = .006 * perceptual_loss + .001 * adversarial_loss + content_loss
+        generator_adversarial_loss = self.__adversarial_loss(self.discriminator(fakes))
+        generator_content_loss: torch.Tensor = self.content_criterion(fakes, targets)
+        generator_perceptual_loss = self.__perceptual_loss(fakes, targets)
 
-        generator_loss.backward()
+        generator_total_loss = generator_content_loss + .006 * generator_perceptual_loss + .001 * generator_adversarial_loss
+        generator_total_loss.backward()
         self.optimizer_generator.step()
 
-        discriminator_loss: torch.Tensor = self.calculate_discriminator_loss(
-            self.discriminator(outputs.detach()),
-            self.discriminator(targets)
-        )
+        set_requires_grad(self.discriminator, True)
+        self.optimizer_discriminator.zero_grad(set_to_none=True)
 
-        discriminator_loss.backward()
+        discriminator_fakes = self.discriminator(fakes.detach())
+        discriminator_real = self.discriminator(targets)
+        discriminator_total_loss = self.__discriminator_loss(discriminator_fakes, discriminator_real)
+        discriminator_total_loss.backward()
         self.optimizer_discriminator.step()
 
-        generator_train_loss += generator_loss.item() * inputs.size(0)
-        discriminator_train_loss += discriminator_loss.item() * inputs.size(0)
+        return generator_total_loss.item(), discriminator_total_loss.item()
 
-        return generator_train_loss, discriminator_train_loss
-
-    def evaluate_one_batch(self, inputs: torch.Tensor, targets: torch.Tensor, valid_loss = .0, vgg_loss = .0, psnr_val = .0, ssim_val = .0):
+    def evaluate_one_batch(
+        self,
+        inputs: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> tuple[float, float, float, float, int]:
         inputs = inputs.to(self.device, non_blocking=True)
         targets = targets.to(self.device, non_blocking=True)
 
-        outputs: torch.Tensor = self.generator(inputs)
+        with torch.no_grad():
+            outputs: torch.Tensor = self.generator(inputs)
+            batch_size = inputs.size(0)
 
-        loss: torch.Tensor = self.content_criterion(outputs, targets)
+            content_loss = self.content_criterion(outputs, targets).item() * batch_size
+            vgg_loss = self.__perceptual_loss(outputs, targets).item() * batch_size
 
-        valid_loss += loss.item() * inputs.size(0)
+            psnr_sum = ssim_sum = .0
+            for i in range(batch_size):
+                output_img = outputs[i].permute(1, 2, 0).cpu().numpy()
+                target_img = targets[i].permute(1, 2, 0).cpu().numpy()
 
-        batch_ssim = .0
-        for i in range(inputs.size(0)):
-            output_img = outputs[i].permute(1, 2, 0).cpu().numpy()
-            target_img = targets[i].permute(1, 2, 0).cpu().numpy()
-            batch_ssim += ssim(target_img, output_img, data_range=1.0, channel_axis=-1)
-        ssim_val += batch_ssim / inputs.size(0)
+                ssim_sum += ssim(target_img, output_img, data_range=1.0, channel_axis=-1)
 
-        mse = torch.mean((outputs - targets) ** 2).item()
-        psnr_val += 10. * math.log10(1.0 / mse)
+                mse_i = torch.mean((outputs[i] - targets[i]) ** 2).item()
+                psnr_sum += 10.0 * math.log10(1.0 / mse_i)
 
-        vgg_loss += self.calculate_perceptual_loss(outputs, targets).item() * inputs.size(0)
-
-        return valid_loss, vgg_loss, psnr_val, ssim_val
+        return content_loss, vgg_loss, psnr_sum, ssim_sum, batch_size
 
     def evaluate(self):
         self.generator.eval()
         self.discriminator.eval()
         
-        valid_loss = .0
-        vgg_loss = .0
-        psnr_val = .0
-        ssim_val = .0
+        content_loss = vgg_loss = psnr_val = ssim_val = total_img = 0.0
         with torch.no_grad():
             for inputs, targets in tqdm(self.valid_loader, desc='Validation', leave=False):
-                valid_loss, vgg_loss, psnr_val, ssim_val = self.evaluate_one_batch(inputs, targets, valid_loss, vgg_loss, psnr_val, ssim_val)
-        loader_len = len(self.valid_loader)
-        valid_loss /= loader_len
-        vgg_loss /= loader_len
-        psnr_val /= loader_len
-        ssim_val /= loader_len
+                cl, vl, pv, sv, n = self.evaluate_one_batch(inputs, targets)
+                content_loss += cl
+                vgg_loss += vl
+                psnr_val += pv
+                ssim_val += sv
+                total_img += n
 
-        return valid_loss, vgg_loss, psnr_val, ssim_val
+        return (
+            content_loss / total_img,
+            vgg_loss / total_img,
+            psnr_val / total_img,
+            ssim_val / total_img
+        )
     
     def train_for_iterations(self, iterations: int, val_interval: int):
+        self.generator.to(self.device)
+        self.discriminator.to(self.device)
+        self.feature_extractor.to(self.device)
+
         bar = None
-
-        self.generator = self.generator.to(self.device)
-        self.discriminator = self.discriminator.to(self.device)
-        self.feature_extractor = self.feature_extractor.to(self.device)
-
         steps = 0
-
-        generator_train_loss = .0
-        discriminator_train_loss = .0
+        img_since_val = 0
+        generator_loss_sum = .0
+        discriminator_loss_sum = .0
 
         while steps < iterations:
             for inputs, targets in self.train_loader:
@@ -145,7 +163,11 @@ class SRGANTraining():
                 self.generator.train()
                 self.discriminator.train()
                 
-                generator_train_loss, discriminator_train_loss = self.train_one_batch(inputs, targets, generator_train_loss, discriminator_train_loss)
+                generator_loss, discriminator_loss = self.train_one_batch(inputs, targets)
+                batch_size = inputs.size(0)
+                generator_loss_sum += generator_loss * batch_size
+                discriminator_loss_sum += discriminator_loss * batch_size
+                img_since_val += batch_size
 
                 steps += 1
                 bar.update()
@@ -153,38 +175,37 @@ class SRGANTraining():
                 if steps % val_interval == 0:
                     bar = None
 
-                    train_loss /= val_interval
+                    generator_loss_average = generator_loss_sum / img_since_val
+                    discriminator_loss_average = discriminator_loss_sum / img_since_val
+
                     valid_loss, vgg_loss, psnr_val, ssim_val = self.evaluate()
+
                     self.scheduler_generator.step(vgg_loss)
 
-                    print(f'Generator Train Loss: {(generator_train_loss / val_interval):.6f} | Discriminator Train Loss: {(discriminator_train_loss / val_interval):.6f}')
-                    print(f'Valid Loss: {valid_loss:.6f} | VGG Loss: {vgg_loss:.6f} | PSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f}')
+                    print(
+                        f'Generator Train Loss: {generator_loss_average:.6f} | Discriminator Train Loss: {discriminator_loss_average:.6f}'
+                    )
+                    print(
+                        f'Valid Loss: {valid_loss:.6f} | VGG Loss: {vgg_loss:.6f} | PSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f}'
+                    )
                     
                     if self.writer is not None:
-                        self.write(steps, generator_train_loss, valid_loss, psnr_val, ssim_val)
+                        self.write(steps, generator_loss_average, valid_loss, psnr_val, ssim_val)
 
-                    generator_train_loss = .0
-                    discriminator_train_loss = .0
+                    generator_loss_sum = discriminator_loss_sum = 0
+                    img_since_val = 0
 
         return self.generator, self.discriminator
     
-    def write(self, arg: int, train_loss: float, valid_loss: float, psnr_val: float, ssim_val: float):
-        assert(self.writer is not None)
+    def write(self, step: int, train_loss: float, valid_loss: float, psnr_val: float, ssim_val: float):
+        assert self.writer is not None
         self.writer.add_scalars(
             'Training vs. Validation Loss',
             { 'Training': train_loss, 'Validation': valid_loss },
-            arg
+            step
         )
-        self.writer.add_scalar(
-            'PSNR',
-            psnr_val,
-            arg
-        )
-        self.writer.add_scalar(
-            'SSIM',
-            ssim_val,
-            arg
-        )
+        self.writer.add_scalar('PSNR', psnr_val, step)
+        self.writer.add_scalar('SSIM', ssim_val, step)
         self.writer.flush()
 
 if __name__ == '__main__':
@@ -215,14 +236,13 @@ if __name__ == '__main__':
     train_dataset = DIV2KDataset(args.train_hr, args.train_lr)
     valid_dataset = DIV2KDataset(args.valid_hr, args.valid_lr)
 
-    batch_size = args.batches
-    val_batch_size = args.val_batches
-
-    train_loader = create_dataloader(train_dataset, batch_size)
-    valid_loader = create_dataloader(valid_dataset, val_batch_size, shuffle=False)
+    train_loader = create_dataloader(train_dataset, args.batches)
+    valid_loader = create_dataloader(valid_dataset, args.val_batches, shuffle=False)
 
     print('Training...')
-    trainer = SRGANTraining(generator, discriminator, device, train_loader, valid_loader, use_writer=args.tensorboard)
+    trainer = SRGANTraining(
+        generator, discriminator, device, train_loader, valid_loader, use_writer=args.tensorboard
+    )
     model, _ = trainer.train_for_iterations(args.iterations, args.interval)
 
     torch.save(model.state_dict(), f'{args.dst}_{args.iterations}iter')
