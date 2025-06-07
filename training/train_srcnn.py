@@ -14,10 +14,10 @@ class SRCNNTraining(NNTrainingBase):
         optimizer = torch.optim.Adam([
             {'params': model.conv1.parameters(), 'lr': 1e-4},
             {'params': model.conv2.parameters(), 'lr': 1e-4},
-            {'params': model.conv3.parameters(), 'lr': 1e-5},
+            {'params': model.conv3.parameters(), 'lr': 1e-4},
         ])
 
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=.5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=8)
 
         super().__init__(
             model, 
