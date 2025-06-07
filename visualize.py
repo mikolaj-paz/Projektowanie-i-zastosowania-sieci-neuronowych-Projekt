@@ -6,9 +6,10 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from torchvision.transforms import ToPILImage
 from PIL import Image
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 from models.srcnn import SRCNN
-from models.srgan import SRGANgenerator, SRGANdiscriminator
+from models.srgan import SRGANgenerator
 from models.swinir import SwinIR
 
 def model_from_file(model: nn.Module, device: torch.device, path: str):
@@ -49,6 +50,15 @@ def subplot_image(
 
     return ax
 
+def compute_metrics(target: Image, output: Image):
+    target = np.asarray(target, dtype=np.float32) / 255.0
+    output = np.asarray(output, dtype=np.float32) / 255.0
+
+    psnr_val = peak_signal_noise_ratio(target, output, data_range=1.0)
+    ssim_val = structural_similarity(target, output, channel_axis=-1, data_range=1.0)
+
+    return psnr_val, ssim_val
+
 def visualize_all_models(hr: Image, lr: Image, device = torch.device('cpu'), srcnn_src: str = None, srgan_src: str = None, swinir_src: str = None):
     sources = [srcnn_src, srgan_src, swinir_src]
     num_of_models = len(sources) - sources.count(None) + 1
@@ -81,7 +91,15 @@ def visualize_all_models(hr: Image, lr: Image, device = torch.device('cpu'), src
         model_from_file(model, device, src)
         output = image_output_from_model(model, device, lr)
 
-        subplot_image(plot_grid, position, f'{model._get_name()} Output Image', output, hr_axes)
+        psnr_val, ssim_val = compute_metrics(hr, output)
+
+        title = (
+            f'{model._get_name()}'
+            f'\nPSNR: {psnr_val:5.2f} dB'
+            f' | SSIM: {ssim_val:6.4f}'
+        )
+
+        subplot_image(plot_grid, position, title, output, hr_axes)
     
     print('Plotting images...')
     plt.show()
