@@ -45,8 +45,8 @@ class SRGANTraining():
         self.feature_extractor = FeatureExtractor()
 
     def __perceptual_loss(self, outputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        outputs_features = self.feature_extractor(outputs)
         with torch.no_grad():
-            outputs_features = self.feature_extractor(outputs)
             targets_features = self.feature_extractor(targets)
         return self.content_criterion(outputs_features, targets_features)
     
@@ -172,6 +172,9 @@ class SRGANTraining():
                 steps += 1
                 bar.update()
 
+                if steps % 10_000 == 0:
+                    torch.save(self.generator.state_dict(), f'tmp/checkpoint_{steps}')
+
                 if steps % val_interval == 0:
                     bar = None
 
@@ -192,7 +195,7 @@ class SRGANTraining():
                     if self.writer is not None:
                         self.write(steps, generator_loss_average, valid_loss, psnr_val, ssim_val)
 
-                    generator_loss_sum = discriminator_loss_sum = 0
+                    generator_loss_sum = discriminator_loss_sum = 0.0
                     img_since_val = 0
 
         return self.generator, self.discriminator
