@@ -180,3 +180,6 @@ tmp/
 
 # Pliki archiwalne PyTorch
 model_weights *.pth
+
+# Dane testowe
+test*
