@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader 
 from tqdm import tqdm
-import math
 
-from train import NNTrainingBase
+from training.train import NNTrainingBase
 
 import sys, os
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

@@ -193,20 +193,43 @@ class SRGANTraining():
                     )
                     
                     if self.writer is not None:
-                        self.write(steps, generator_loss_average, valid_loss, psnr_val, ssim_val)
+                        self.write(
+                            steps,
+                            generator_loss_average,
+                            valid_loss,
+                            discriminator_loss_average,
+                            vgg_loss,
+                            psnr_val,
+                            ssim_val
+                        )
 
                     generator_loss_sum = discriminator_loss_sum = 0.0
                     img_since_val = 0
 
         return self.generator, self.discriminator
     
-    def write(self, step: int, train_loss: float, valid_loss: float, psnr_val: float, ssim_val: float):
+    def write(
+        self,
+        step: int,
+        generator_train_loss: float,
+        generator_valid_loss: float,
+        discriminator_train_loss: float,
+        vgg_loss: float,
+        psnr_val: float,
+        ssim_val: float
+    ):
         assert self.writer is not None
         self.writer.add_scalars(
-            'Training vs. Validation Loss',
-            { 'Training': train_loss, 'Validation': valid_loss },
+            'Training vs. Validation Loss Generator',
+            { 'Training': generator_train_loss, 'Validation': generator_valid_loss },
             step
         )
+        self.writer.add_scalars(
+            'Training Loss Discriminator',
+            { 'Training': discriminator_train_loss },
+            step
+        )
+        self.writer.add_scalar('VGG Loss', vgg_loss, step)
         self.writer.add_scalar('PSNR', psnr_val, step)
         self.writer.add_scalar('SSIM', ssim_val, step)
         self.writer.flush()

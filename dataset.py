@@ -48,13 +48,13 @@ class PatchDataset(Dataset):
     def __getitem__(self, index):
         return self.inputs[index], self.targets[index]
     
-def create_dataloader(dataset: Dataset, batch_size: int, shuffle = True):
+def create_dataloader(dataset: Dataset, batch_size: int, shuffle = True, pin_memory = True):
     return DataLoader(
         dataset,
         batch_size,
         shuffle,
         num_workers=os.cpu_count() // 2, 
-        pin_memory=True,
+        pin_memory=pin_memory,
         prefetch_factor=2,
         persistent_workers=True
     )
